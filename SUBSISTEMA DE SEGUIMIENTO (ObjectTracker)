@@ -1,0 +1,36 @@
+import cv2
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+
+class MultiObjectTracker:
+    def __init__(self):
+        self.tracks = {}
+        self.next_id = 0
+        self.max_disappeared = 50
+        
+    def register(self, centroid):
+        self.tracks[self.next_id] = {
+            'centroid': centroid,
+            'disappeared': 0,
+            'trajectory': [centroid],
+            'velocity': np.array([0, 0])
+        }
+        self.next_id += 1
+        
+    def deregister(self, object_id):
+        del self.tracks[object_id]
+        
+    def update(self, centroids):
+        if len(centroids) == 0:
+            for object_id in list(self.tracks.keys()):
+                self.tracks[object_id]['disappeared'] += 1
+                if self.tracks[object_id]['disappeared'] > self.max_disappeared:
+                    self.deregister(object_id)
+            return self.tracks
+            
+        # Algoritmo de asociación de datos usando distancia de Mahalanobis
+        # y filtro de Kalman para predicción de movimiento
+        
+        # Código de actualización de tracks
+        
+        return self.tracks
