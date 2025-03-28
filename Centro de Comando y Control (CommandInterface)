@@ -1,0 +1,76 @@
+// Frontend en TypeScript con React
+
+import React, { useEffect, useState } from 'react';
+import { Map, View } from 'ol';
+import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer';
+import { OSM, Vector as VectorSource } from 'ol/source';
+import { Circle, Fill, Stroke, Style } from 'ol/style';
+
+interface Track {
+  id: string;
+  position: [number, number, number]; // lon, lat, alt
+  velocity: [number, number, number];
+  threatLevel: string;
+  type: string;
+  lastUpdated: Date;
+}
+
+const CommandCenter: React.FC = () => {
+  const [map, setMap] = useState<Map | null>(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+  const [systemStatus, setSystemStatus] = useState({
+    defense: 'online',
+    attack: 'standby',
+    tracking: 'online'
+  });
+  
+  useEffect(() => {
+    // Inicializar mapa
+    const mapInstance = new Map({
+      target: 'map',
+      layers: [
+        new TileLayer({
+          source: new OSM()
+        }),
+        new VectorLayer({
+          source: new VectorSource(),
+          style: trackStyleFunction
+        })
+      ],
+      view: new View({
+        center: [0, 0],
+        zoom: 2
+      })
+    });
+    
+    setMap(mapInstance);
+    
+    // Establecer conexión WebSocket para datos en tiempo real
+    const ws = new WebSocket('wss://command.sidas.local/realtime');
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'tracks_update') {
+        setTracks(data.tracks);
+      } else if (data.type === 'system_status') {
+        setSystemStatus(data.status);
+      }
+    };
+    
+    return () => {
+      ws.close();
+      mapInstance.dispose();
+    };
+  }, []);
+  
+  // Resto de la implementación de interfaz...
+  
+  return (
+    <div className="command-center">
+      <div id="map" className="map-container"></div>
+      <div className="control-panel">
+        {/* Paneles de control */}
+      </div>
+    </div>
+  );
+};
