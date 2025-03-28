@@ -1,0 +1,22 @@
+import numpy as np
+import tensorflow as tf
+
+class PathPredictor:
+    def __init__(self):
+        self.prediction_model = tf.saved_model.load('models/path_prediction_v2')
+        
+    def predict_trajectory(self, track_history, time_horizon=5.0):
+        # Convertir historial de track a formato tensor
+        track_tensor = self.preprocess_track(track_history)
+        
+        # Predicción de trayectoria futura
+        predictions = self.prediction_model(track_tensor)
+        
+        # Calcular confianza de predicción
+        confidence = self.calculate_confidence(predictions)
+        
+        return {
+            'predicted_path': predictions.numpy(),
+            'confidence': confidence,
+            'time_horizon': time_horizon
+        }
