@@ -1,0 +1,50 @@
+import nacl.secret
+import nacl.utils
+import nacl.signing
+import nacl.encoding
+import json
+import time
+
+class SecureChannel:
+    def __init__(self, key_file=None):
+        if key_file:
+            self.load_keys(key_file)
+        else:
+            self.generate_keys()
+        
+        self.box = nacl.secret.SecretBox(self.symmetric_key)
+        
+    def generate_keys(self):
+        # Generar par de claves para firma
+        self.signing_key = nacl.signing.SigningKey.generate()
+        self.verify_key = self.signing_key.verify_key
+        
+        # Generar clave simétrica para cifrado
+        self.symmetric_key = nacl.utils.random(nacl.secret.SecretBox.KEY_SIZE)
+        
+    def encrypt_message(self, message_dict):
+        # Serializar mensaje
+        message_json = json.dumps(message_dict)
+        
+        # Añadir timestamp
+        timestamped = {
+            'payload': message_json,
+            'timestamp': time.time(),
+            'nonce': nacl.utils.random(16).hex()
+        }
+        
+        # Serializar mensaje con timestamp
+        message_bytes = json.dumps(timestamped).encode('utf-8')
+        
+        # Firmar mensaje
+        signed = self.signing_key.sign(message_bytes)
+        
+        # Cifrar mensaje firmado
+        nonce = nacl.utils.random(nacl.secret.SecretBox.NONCE_SIZE)
+        encrypted = self.box.encrypt(signed, nonce)
+        
+        return {
+            'encrypted_data': encrypted.ciphertext.hex(),
+            'nonce': encrypted.nonce.hex(),
+            'verify_key': self.verify_key.encode(encoder=nacl.encoding.HexEncoder).decode('utf-8')
+        }
