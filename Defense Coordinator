@@ -1,0 +1,33 @@
+import threading
+import time
+import numpy as np
+
+class DefenseCoordinator:
+    def __init__(self, config_file='config/defense_config.json'):
+        self.config = self.load_config(config_file)
+        self.active_countermeasures = {}
+        self.defense_status = 'standby'
+        
+    def activate_countermeasure(self, threat_id, threat_assessment):
+        # Selección de contramedida óptima basada en tipo de amenaza
+        countermeasure = self.select_countermeasure(threat_assessment)
+        
+        # Iniciar contramedida en thread separado
+        cm_thread = threading.Thread(
+            target=self.execute_countermeasure,
+            args=(threat_id, countermeasure)
+        )
+        cm_thread.start()
+        
+        self.active_countermeasures[threat_id] = {
+            'type': countermeasure['type'],
+            'start_time': time.time(),
+            'status': 'active',
+            'thread': cm_thread
+        }
+        
+        return {
+            'countermeasure_id': len(self.active_countermeasures),
+            'type': countermeasure['type'],
+            'estimated_effectiveness': countermeasure['effectiveness']
+        }
