@@ -1,0 +1,24 @@
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+import joblib
+
+class ThreatAnalyzer:
+    def __init__(self):
+        self.threat_model = joblib.load('models/threat_classifier.pkl')
+        self.threat_levels = ['none', 'low', 'medium', 'high', 'critical']
+        
+    def analyze_track(self, track_data):
+        features = self.extract_features(track_data)
+        threat_prob = self.threat_model.predict_proba([features])[0]
+        
+        threat_assessment = {
+            'level': self.threat_levels[np.argmax(threat_prob)],
+            'confidence': np.max(threat_prob),
+            'analysis': {
+                'behavior_anomaly': self.check_behavior_anomaly(track_data),
+                'proximity_to_assets': self.calculate_proximity(track_data),
+                'velocity_vector': self.analyze_velocity(track_data)
+            }
+        }
+        
+        return threat_assessment
