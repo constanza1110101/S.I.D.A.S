@@ -1,0 +1,30 @@
+import numpy as np
+import cv2
+from tensorflow import keras
+
+class SensorFusion:
+    def __init__(self):
+        self.sensor_inputs = {}
+        self.fusion_model = self.load_fusion_model()
+        
+    def load_fusion_model(self):
+        return keras.models.load_model('models/sensor_fusion_v3.h5')
+        
+    def register_sensor(self, sensor_id, sensor_type, resolution):
+        self.sensor_inputs[sensor_id] = {
+            'type': sensor_type,
+            'resolution': resolution,
+            'data_buffer': [],
+            'status': 'online'
+        }
+    
+    def process_frame(self, sensor_id, frame_data, timestamp):
+        # Procesamiento de datos entrantes de sensores
+        processed = self.preprocess_data(sensor_id, frame_data)
+        self.sensor_inputs[sensor_id]['data_buffer'].append((processed, timestamp))
+        return self.run_fusion_algorithm()
+        
+    def run_fusion_algorithm(self):
+        # Algoritmo de fusión de datos multisensor
+        fused_data = self.fusion_model.predict(self.prepare_inputs())
+        return fused_data
