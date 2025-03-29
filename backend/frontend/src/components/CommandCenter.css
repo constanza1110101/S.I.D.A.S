@@ -1,4 +1,4 @@
-/* CommandCenter.css */
+/* CommandCenter.css - Updated */
 .command-center {
   display: flex;
   flex-direction: column;
@@ -30,27 +30,46 @@
 }
 
 .main-content {
-  display: flex;
   flex: 1;
   overflow: hidden;
 }
 
-.map-container {
-  flex: 3;
+.visualization-container {
   height: 100%;
+}
+
+.map-container {
+  height: 100%;
+  width: 100%;
   background-color: #000;
 }
 
-.control-panel {
-  flex: 2;
+.control-container {
+  height: 100%;
   padding: 10px;
-  overflow-y: auto;
   background-color: #2a2a2a;
   border-left: 1px solid #444;
+  display: flex;
+  flex-direction: column;
+}
+
+.control-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.tab-pane {
+  height: 100%;
 }
 
 .tracks-table-container {
-  max-height: 400px;
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -97,6 +116,8 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
+  height: 100%;
 }
 
 .analytics-chart {
@@ -161,29 +182,18 @@
   padding: 15px;
 }
 
-/* Table styles */
-.table {
-  color: #f0f0f0;
-  background-color: #333;
-}
-
-.table thead {
-  background-color: #444;
-}
-
-.table-striped tbody tr:nth-of-type(odd) {
-  background-color: rgba(255, 255, 255, 0.05);
-}
-
-.table-hover tbody tr:hover {
-  background-color: rgba(0, 170, 255, 0.1);
-}
-
 /* Card styles */
 .card {
   background-color: #333;
   border-color: #444;
-  margin-bottom: 15px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-body {
+  flex: 1;
+  overflow-y: auto;
 }
 
 .card-header {
@@ -212,34 +222,23 @@
   border-color: #444 #444 #333;
 }
 
-/* Form styles */
-.form-control, .form-select {
+/* Table styles */
+.table {
+  color: #f0f0f0;
+  margin-bottom: 0;
+}
+
+.table thead {
   background-color: #444;
-  border-color: #555;
-  color: #f0f0f0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
-.form-control:focus, .form-select:focus {
-  background-color: #444;
-  border-color: #00aaff;
-  box-shadow: 0 0 0 0.25rem rgba(0, 170, 255, 0.25);
-  color: #f0f0f0;
+.table-striped tbody tr:nth-of-type(odd) {
+  background-color: rgba(255, 255, 255, 0.05);
 }
 
-/* Modal styles */
-.modal-content {
-  background-color: #333;
-  border-color: #444;
-}
-
-.modal-header {
-  border-color: #444;
-}
-
-.modal-footer {
-  border-color: #444;
-}
-
-.close {
-  color: #f0f0f0;
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 170, 255, 0.1);
 }
