@@ -1,33 +1,1406 @@
 import threading
 import time
 import numpy as np
+import json
+import logging
+import uuid
+import os
+from enum import Enum
+from typing import Dict, List, Any, Tuple, Optional
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('sidas.defense')
+
+class DefenseStatus(Enum):
+    STANDBY = 'standby'
+    ACTIVE = 'active'
+    ENGAGED = 'engaged'
+    RECOVERING = 'recovering'
+    OFFLINE = 'offline'
+    MAINTENANCE = 'maintenance'
+
+class CountermeasureType(Enum):
+    ELECTRONIC = 'electronic'
+    KINETIC = 'kinetic'
+    CYBER = 'cyber'
+    DECOY = 'decoy'
+    JAMMING = 'jamming'
+    EVASIVE = 'evasive'
+    DEFENSIVE = 'defensive'
 
 class DefenseCoordinator:
-    def __init__(self, config_file='config/defense_config.json'):
+    def __init__(self, config_file='config/defense_config.json', database=None, event_system=None):
+        """
+        Initialize the Defense Coordinator
+        
+        Args:
+            config_file: Path to configuration file
+            database: Database connection for logging and persistence
+            event_system: Event system for publishing defense events
+        """
         self.config = self.load_config(config_file)
         self.active_countermeasures = {}
-        self.defense_status = 'standby'
+        self.defense_status = DefenseStatus.STANDBY
+        self.defense_level = 1  # 1-5 scale
+        self.last_status_change = time.time()
+        self.database = database
+        self.event_system = event_system
+        self.defense_resources = self.initialize_resources()
+        self.threat_history = {}
+        self.countermeasure_effectiveness = {}
+        self.defense_protocols = {}
+        self.load_defense_protocols()
         
-    def activate_countermeasure(self, threat_id, threat_assessment):
-        # Selección de contramedida óptima basada en tipo de amenaza
+        # Start monitoring thread
+        self.stop_monitoring = False
+        self.monitor_thread = threading.Thread(target=self.monitor_defenses)
+        self.monitor_thread.daemon = True
+        self.monitor_thread.start()
+        
+        logger.info("Defense Coordinator initialized")
+    
+    def load_config(self, config_file: str) -> Dict[str, Any]:
+        """Load configuration from file"""
+        try:
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                logger.info(f"Loaded defense configuration from {config_file}")
+                return config
+            else:
+                logger.warning(f"Config file {config_file} not found, using defaults")
+                return self.get_default_config()
+        except Exception as e:
+            logger.error(f"Error loading config: {str(e)}")
+            return self.get_default_config()
+    
+    def get_default_config(self) -> Dict[str, Any]:
+        """Return default configuration"""
+        return {
+            "countermeasures": {
+                "electronic": {
+                    "effectiveness": 0.8,
+                    "resource_usage": 0.3,
+                    "cooldown": 60,
+                    "duration": 120
+                },
+                "kinetic": {
+                    "effectiveness": 0.95,
+                    "resource_usage": 0.7,
+                    "cooldown": 300,
+                    "duration": 10
+                },
+                "cyber": {
+                    "effectiveness": 0.75,
+                    "resource_usage": 0.2,
+                    "cooldown": 120,
+                    "duration": 600
+                },
+                "decoy": {
+                    "effectiveness": 0.6,
+                    "resource_usage": 0.4,
+                    "cooldown": 180,
+                    "duration": 300
+                },
+                "jamming": {
+                    "effectiveness": 0.85,
+                    "resource_usage": 0.5,
+                    "cooldown": 90,
+                    "duration": 180
+                },
+                "evasive": {
+                    "effectiveness": 0.7,
+                    "resource_usage": 0.3,
+                    "cooldown": 30,
+                    "duration": 60
+                },
+                "defensive": {
+                    "effectiveness": 0.9,
+                    "resource_usage": 0.6,
+                    "cooldown": 120,
+                    "duration": 300
+                }
+            },
+            "threat_types": {
+                "aircraft": ["kinetic", "electronic", "jamming"],
+                "missile": ["kinetic", "electronic", "evasive"],
+                "vessel": ["kinetic", "electronic", "cyber"],
+                "ground": ["kinetic", "cyber", "defensive"],
+                "cyber": ["cyber", "defensive"],
+                "unknown": ["jamming", "defensive", "electronic"]
+            },
+            "defense_levels": {
+                "1": {
+                    "resource_multiplier": 1.0,
+                    "effectiveness_multiplier": 1.0,
+                    "auto_engage": False
+                },
+                "2": {
+                    "resource_multiplier": 1.2,
+                    "effectiveness_multiplier": 1.1,
+                    "auto_engage": False
+                },
+                "3": {
+                    "resource_multiplier": 1.5,
+                    "effectiveness_multiplier": 1.2,
+                    "auto_engage": ["high"]
+                },
+                "4": {
+                    "resource_multiplier": 1.8,
+                    "effectiveness_multiplier": 1.3,
+                    "auto_engage": ["high", "medium"]
+                },
+                "5": {
+                    "resource_multiplier": 2.0,
+                    "effectiveness_multiplier": 1.5,
+                    "auto_engage": ["high", "medium", "low"]
+                }
+            },
+            "resources": {
+                "energy": 100,
+                "munitions": 100,
+                "electronic": 100,
+                "cyber": 100
+            },
+            "resource_regeneration": {
+                "energy": 1.0,
+                "munitions": 0.2,
+                "electronic": 0.5,
+                "cyber": 0.8
+            }
+        }
+    
+    def initialize_resources(self) -> Dict[str, Dict[str, float]]:
+        """Initialize defense resources"""
+        resources = {}
+        
+        for resource_name, max_value in self.config.get('resources', {}).items():
+            resources[resource_name] = {
+                'current': float(max_value),
+                'max': float(max_value),
+                'last_update': time.time()
+            }
+        
+        return resources
+    
+    def load_defense_protocols(self) -> None:
+        """Load predefined defense protocols"""
+        # These would typically be loaded from a file or database
+        # For now, we'll define some basic protocols
+        self.defense_protocols = {
+            "alpha": {
+                "description": "Standard defensive posture",
+                "defense_level": 2,
+                "countermeasures": ["electronic", "defensive"],
+                "resource_allocation": {
+                    "energy": 0.3,
+                    "electronic": 0.5
+                }
+            },
+            "beta": {
+                "description": "Enhanced defensive posture",
+                "defense_level": 3,
+                "countermeasures": ["electronic", "jamming", "defensive"],
+                "resource_allocation": {
+                    "energy": 0.5,
+                    "electronic": 0.7,
+                    "cyber": 0.3
+                }
+            },
+            "gamma": {
+                "description": "Active defense with limited offensive capabilities",
+                "defense_level": 4,
+                "countermeasures": ["electronic", "jamming", "kinetic", "defensive"],
+                "resource_allocation": {
+                    "energy": 0.7,
+                    "electronic": 0.8,
+                    "munitions": 0.5,
+                    "cyber": 0.5
+                }
+            },
+            "delta": {
+                "description": "Full defensive alert with offensive capabilities",
+                "defense_level": 5,
+                "countermeasures": ["electronic", "jamming", "kinetic", "cyber", "defensive"],
+                "resource_allocation": {
+                    "energy": 0.9,
+                    "electronic": 1.0,
+                    "munitions": 0.8,
+                    "cyber": 0.8
+                }
+            },
+            "omega": {
+                "description": "Last resort protocol - all resources committed",
+                "defense_level": 5,
+                "countermeasures": ["electronic", "jamming", "kinetic", "cyber", "defensive", "decoy"],
+                "resource_allocation": {
+                    "energy": 1.0,
+                    "electronic": 1.0,
+                    "munitions": 1.0,
+                    "cyber": 1.0
+                }
+            }
+        }
+    
+    def activate_defense_protocol(self, protocol_name: str) -> Dict[str, Any]:
+        """
+        Activate a predefined defense protocol
+        
+        Args:
+            protocol_name: Name of the protocol to activate
+            
+        Returns:
+            Dict with activation result
+        """
+        if protocol_name not in self.defense_protocols:
+            logger.warning(f"Unknown defense protocol: {protocol_name}")
+            return {
+                'success': False,
+                'message': f"Unknown defense protocol: {protocol_name}"
+            }
+        
+        protocol = self.defense_protocols[protocol_name]
+        
+        # Set defense level
+        self.set_defense_level(protocol['defense_level'])
+        
+        # Allocate resources
+        for resource, allocation in protocol.get('resource_allocation', {}).items():
+            if resource in self.defense_resources:
+                max_value = self.defense_resources[resource]['max']
+                self.defense_resources[resource]['current'] = max_value * allocation
+        
+        # Set status to active
+        self.defense_status = DefenseStatus.ACTIVE
+        self.last_status_change = time.time()
+        
+        # Log the activation
+        if self.database:
+            self.database.log_system_event(
+                event_type="defense_protocol_activated",
+                data={
+                    'protocol': protocol_name,
+                    'level': protocol['defense_level'],
+                    'timestamp': time.time()
+                },
+                severity="info"
+            )
+        
+        # Publish event
+        if self.event_system:
+            self.event_system.publish(
+                'defense_update',
+                {
+                    'type': 'protocol_activated',
+                    'protocol': protocol_name,
+                    'level': protocol['defense_level'],
+                    'status': self.defense_status.value
+                }
+            )
+        
+        logger.info(f"Activated defense protocol: {protocol_name}")
+        
+        return {
+            'success': True,
+            'protocol': protocol_name,
+            'level': protocol['defense_level'],
+            'status': self.defense_status.value,
+            'message': f"Defense protocol {protocol_name} activated"
+        }
+    
+    def set_defense_level(self, level: int) -> Dict[str, Any]:
+        """
+        Set the defense level
+        
+        Args:
+            level: Defense level (1-5)
+            
+        Returns:
+            Dict with result
+        """
+        if not 1 <= level <= 5:
+            logger.warning(f"Invalid defense level: {level}")
+            return {
+                'success': False,
+                'message': f"Invalid defense level: {level}, must be 1-5"
+            }
+        
+        self.defense_level = level
+        
+        # Update status based on level
+        if level >= 4:
+            self.defense_status = DefenseStatus.ENGAGED
+        elif level >= 2:
+            self.defense_status = DefenseStatus.ACTIVE
+        else:
+            self.defense_status = DefenseStatus.STANDBY
+        
+        self.last_status_change = time.time()
+        
+        # Log the change
+        if self.database:
+            self.database.log_system_event(
+                event_type="defense_level_changed",
+                data={
+                    'level': level,
+                    'status': self.defense_status.value,
+                    'timestamp': time.time()
+                },
+                severity="info"
+            )
+        
+        # Publish event
+        if self.event_system:
+            self.event_system.publish(
+                'defense_update',
+                {
+                    'type': 'level_changed',
+                    'level': level,
+                    'status': self.defense_status.value
+                }
+            )
+        
+        logger.info(f"Defense level set to {level}, status: {self.defense_status.value}")
+        
+        return {
+            'success': True,
+            'level': level,
+            'status': self.defense_status.value
+        }
+    
+    def get_defense_status(self) -> Dict[str, Any]:
+        """
+        Get current defense status
+        
+        Returns:
+            Dict with defense status information
+        """
+        # Calculate resource utilization
+        resource_status = {}
+        for resource_name, resource_data in self.defense_resources.items():
+            resource_status[resource_name] = {
+                'current': resource_data['current'],
+                'max': resource_data['max'],
+                'percentage': (resource_data['current'] / resource_data['max']) * 100
+            }
+        
+        # Count active countermeasures by type
+        countermeasure_counts = {}
+        for cm_type in CountermeasureType:
+            countermeasure_counts[cm_type.value] = 0
+            
+        for cm_data in self.active_countermeasures.values():
+            cm_type = cm_data['type']
+            if cm_type in countermeasure_counts:
+                countermeasure_counts[cm_type] += 1
+        
+        return {
+            'status': self.defense_status.value,
+            'level': self.defense_level,
+            'active_countermeasures': len(self.active_countermeasures),
+            'countermeasure_types': countermeasure_counts,
+            'resources': resource_status,
+            'last_status_change': self.last_status_change,
+            'uptime': time.time() - self.last_status_change,
+            'timestamp': time.time()
+        }
+    
+    def select_countermeasure(self, threat_assessment: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Select the optimal countermeasure based on threat assessment
+        
+        Args:
+            threat_assessment: Dict with threat assessment data
+            
+        Returns:
+            Dict with selected countermeasure information
+        """
+        threat_type = threat_assessment.get('type', 'unknown')
+        threat_level = threat_assessment.get('threatLevel', 'low')
+        
+        # Get suitable countermeasure types for this threat
+        suitable_types = self.config.get('threat_types', {}).get(threat_type, ['defensive'])
+        
+        # Calculate effectiveness scores for each suitable countermeasure
+        scores = []
+        
+        for cm_type in suitable_types:
+            if cm_type not in self.config.get('countermeasures', {}):
+                continue
+                
+            cm_config = self.config['countermeasures'][cm_type]
+            
+            # Base effectiveness
+            effectiveness = cm_config.get('effectiveness', 0.5)
+            
+            # Apply defense level multiplier
+            level_config = self.config.get('defense_levels', {}).get(str(self.defense_level), {})
+            effectiveness *= level_config.get('effectiveness_multiplier', 1.0)
+            
+            # Check if we have enough resources
+            resource_usage = cm_config.get('resource_usage', 0.1)
+            resource_available = True
+            
+            for resource_name, resource_data in self.defense_resources.items():
+                if resource_data['current'] < (resource_data['max'] * resource_usage):
+                    resource_available = False
+                    break
+            
+            # Adjust based on historical effectiveness against this threat type
+            history_key = f"{threat_type}_{cm_type}"
+            if history_key in self.countermeasure_effectiveness:
+                hist_data = self.countermeasure_effectiveness[history_key]
+                if hist_data['total'] > 0:
+                    hist_factor = hist_data['success'] / hist_data['total']
+                    effectiveness *= (0.5 + 0.5 * hist_factor)  # Blend with base effectiveness
+            
+            # Calculate final score
+            if resource_available:
+                scores.append({
+                    'type': cm_type,
+                    'effectiveness': effectiveness,
+                    'resource_usage': resource_usage,
+                    'cooldown': cm_config.get('cooldown', 60),
+                    'duration': cm_config.get('duration', 120)
+                })
+        
+        # If no suitable countermeasures, use defensive as fallback
+        if not scores and 'defensive' in self.config.get('countermeasures', {}):
+            cm_config = self.config['countermeasures']['defensive']
+            scores.append({
+                'type': 'defensive',
+                'effectiveness': cm_config.get('effectiveness', 0.5),
+                'resource_usage': cm_config.get('resource_usage', 0.1),
+                'cooldown': cm_config.get('cooldown', 60),
+                'duration': cm_config.get('duration', 120)
+            })
+        
+        # Select the most effective countermeasure
+        if scores:
+            return max(scores, key=lambda x: x['effectiveness'])
+        
+        # Fallback to a basic countermeasure if nothing else works
+        return {
+            'type': 'defensive',
+            'effectiveness': 0.3,
+            'resource_usage': 0.1,
+            'cooldown': 30,
+            'duration': 60
+        }
+    
+    def activate_countermeasure(self, threat_id: str, threat_assessment: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Activate a countermeasure against a specific threat
+        
+        Args:
+            threat_id: ID of the threat
+            threat_assessment: Dict with threat assessment data
+            
+        Returns:
+            Dict with countermeasure activation result
+        """
+        # Check if there's already an active countermeasure for this threat
+        if threat_id in self.active_countermeasures:
+            logger.info(f"Countermeasure already active for threat {threat_id}")
+            return {
+                'success': True,
+                'countermeasure_id': threat_id,
+                'type': self.active_countermeasures[threat_id]['type'],
+                'status': 'already_active',
+                'message': f"Countermeasure already active for threat {threat_id}"
+            }
+        
+        # Select countermeasure
         countermeasure = self.select_countermeasure(threat_assessment)
         
-        # Iniciar contramedida en thread separado
+        # Generate a unique ID for this countermeasure
+        countermeasure_id = f"cm-{uuid.uuid4().hex[:8]}"
+        
+        # Consume resources
+        resource_usage = countermeasure.get('resource_usage', 0.1)
+        for resource_name, resource_data in self.defense_resources.items():
+            resource_data['current'] = max(0, resource_data['current'] - (resource_data['max'] * resource_usage * 0.1))
+        
+        # Start countermeasure in a separate thread
         cm_thread = threading.Thread(
             target=self.execute_countermeasure,
-            args=(threat_id, countermeasure)
+            args=(threat_id, countermeasure, countermeasure_id)
         )
+        cm_thread.daemon = True
         cm_thread.start()
         
+        # Record the active countermeasure
         self.active_countermeasures[threat_id] = {
+            'id': countermeasure_id,
             'type': countermeasure['type'],
             'start_time': time.time(),
             'status': 'active',
-            'thread': cm_thread
+            'thread': cm_thread,
+            'effectiveness': countermeasure['effectiveness'],
+            'duration': countermeasure['duration'],
+            'threat_assessment': threat_assessment
         }
         
+        # Log the activation
+        if self.database:
+            self.database.log_system_event(
+                event_type="countermeasure_activated",
+                data={
+                    'threat_id': threat_id,
+                    'countermeasure_id': countermeasure_id,
+                    'type': countermeasure['type'],
+                    'effectiveness': countermeasure['effectiveness'],
+                    'timestamp': time.time()
+                },
+                severity="info"
+            )
+        
+        # Publish event
+        if self.event_system:
+            self.event_system.publish(
+                'defense_update',
+                {
+                    'type': 'countermeasure_activated',
+                    'threat_id': threat_id,
+                    'countermeasure_id': countermeasure_id,
+                    'countermeasure_type': countermeasure['type'],
+                    'effectiveness': countermeasure['effectiveness']
+                }
+            )
+        
+        logger.info(f"Activated {countermeasure['type']} countermeasure against threat {threat_id}")
+        
         return {
-            'countermeasure_id': len(self.active_countermeasures),
+            'success': True,
+            'countermeasure_id': countermeasure_id,
             'type': countermeasure['type'],
-            'estimated_effectiveness': countermeasure['effectiveness']
+            'estimated_effectiveness': countermeasure['effectiveness'],
+            'duration': countermeasure['duration'],
+            'status': 'activated'
         }
+    
+    def execute_countermeasure(self, threat_id: str, countermeasure: Dict[str, Any], countermeasure_id: str) -> None:
+        """
+        Execute a countermeasure against a threat
+        
+        Args:
+            threat_id: ID of the threat
+            countermeasure: Dict with countermeasure information
+            countermeasure_id: Unique ID for this countermeasure instance
+        """
+        try:
+            # Get duration
+            duration = countermeasure.get('duration', 60)
+            
+            # Simulate countermeasure execution
+            logger.info(f"Executing {countermeasure['type']} countermeasure against threat {threat_id}")
+            
+            # In a real system, this would interface with actual defense systems
+            # For now, we'll just sleep to simulate the duration
+            time.sleep(duration)
+            
+            # Update countermeasure status
+            if threat_id in self.active_countermeasures:
+                self.active_countermeasures[threat_id]['status'] = 'completed'
+                
+                # Publish completion event
+                if self.event_system:
+                    self.event_system.publish(
+                        'defense_update',
+                        {
+                            'type': 'countermeasure_completed',
+                            'threat_id': threat_id,
+                            'countermeasure_id': countermeasure_id,
+                            'countermeasure_type': countermeasure['type'],
+                            'duration': duration,
+                            'timestamp': time.time()
+                        }
+                    )
+                
+                # Log completion
+                if self.database:
+                    self.database.log_system_event(
+                        event_type="countermeasure_completed",
+                        data={
+                            'threat_id': threat_id,
+                            'countermeasure_id': countermeasure_id,
+                            'type': countermeasure['type'],
+                            'duration': duration,
+                            'timestamp': time.time()
+                        },
+                        severity="info"
+                    )
+                
+                # Remove from active countermeasures after a short delay
+                time.sleep(5)  # Allow time for status to be queried
+                if threat_id in self.active_countermeasures:
+                    del self.active_countermeasures[threat_id]
+            
+            logger.info(f"Completed {countermeasure['type']} countermeasure against threat {threat_id}")
+            
+        except Exception as e:
+            logger.error(f"Error executing countermeasure: {str(e)}")
+            
+            # Update status to failed
+            if threat_id in self.active_countermeasures:
+                self.active_countermeasures[threat_id]['status'] = 'failed'
+                
+                # Publish failure event
+                if self.event_system:
+                    self.event_system.publish(
+                        'defense_update',
+                        {
+                            'type': 'countermeasure_failed',
+                            'threat_id': threat_id,
+                            'countermeasure_id': countermeasure_id,
+                            'countermeasure_type': countermeasure['type'],
+                            'error': str(e),
+                            'timestamp': time.time()
+                        }
+                    )
+                
+                # Log failure
+                if self.database:
+                    self.database.log_system_event(
+                        event_type="countermeasure_failed",
+                        data={
+                            'threat_id': threat_id,
+                            'countermeasure_id': countermeasure_id,
+                            'type': countermeasure['type'],
+                            'error': str(e),
+                            'timestamp': time.time()
+                        },
+                        severity="error"
+                    )
+                
+                # Remove from active countermeasures after a short delay
+                time.sleep(5)  # Allow time for status to be queried
+                if threat_id in self.active_countermeasures:
+                    del self.active_countermeasures[threat_id]
+    
+    def deactivate_countermeasure(self, threat_id: str) -> Dict[str, Any]:
+        """
+        Deactivate a countermeasure
+        
+        Args:
+            threat_id: ID of the threat
+            
+        Returns:
+            Dict with deactivation result
+        """
+        if threat_id not in self.active_countermeasures:
+            logger.warning(f"No active countermeasure for threat {threat_id}")
+            return {
+                'success': False,
+                'message': f"No active countermeasure for threat {threat_id}"
+            }
+        
+        # Get countermeasure data
+        cm_data = self.active_countermeasures[threat_id]
+        cm_type = cm_data['type']
+        cm_id = cm_data['id']
+        
+        # Update status to deactivating
+        cm_data['status'] = 'deactivating'
+        
+        # In a real system, we would send a signal to stop the countermeasure
+        # For now, we'll just remove it from active countermeasures
+        del self.active_countermeasures[threat_id]
+        
+        # Publish event
+        if self.event_system:
+            self.event_system.publish(
+                'defense_update',
+                {
+                    'type': 'countermeasure_deactivated',
+                    'threat_id': threat_id,
+                    'countermeasure_id': cm_id,
+                    'countermeasure_type': cm_type,
+                    'timestamp': time.time()
+                }
+            )
+        
+        # Log deactivation
+        if self.database:
+            self.database.log_system_event(
+                event_type="countermeasure_deactivated",
+                data={
+                    'threat_id': threat_id,
+                    'countermeasure_id': cm_id,
+                    'type': cm_type,
+                    'timestamp': time.time()
+                },
+                severity="info"
+            )
+        
+        logger.info(f"Deactivated {cm_type} countermeasure against threat {threat_id}")
+        
+        return {
+            'success': True,
+            'countermeasure_id': cm_id,
+            'type': cm_type,
+            'status': 'deactivated'
+        }
+    
+    def monitor_defenses(self) -> None:
+        """
+        Monitor and update defense systems
+        This runs in a separate thread
+        """
+        while not self.stop_monitoring:
+            try:
+                current_time = time.time()
+                
+                # Update resource levels
+                for resource_name, resource_data in self.defense_resources.items():
+                    # Calculate time since last update
+                    time_delta = current_time - resource_data['last_update']
+                    
+                    # Get regeneration rate
+                    regen_rate = self.config.get('resource_regeneration', {}).get(resource_name, 0.0)
+                    
+                    # Update resource level
+                    new_value = resource_data['current'] + (regen_rate * time_delta)
+                    resource_data['current'] = min(new_value, resource_data['max'])
+                    resource_data['last_update'] = current_time
+                
+                # Check for auto-engage based on defense level
+                if self.defense_status != DefenseStatus.OFFLINE and self.defense_status != DefenseStatus.MAINTENANCE:
+                    level_config = self.config.get('defense_levels', {}).get(str(self.defense_level), {})
+                    auto_engage = level_config.get('auto_engage', False)
+                    
+                    if auto_engage and self.event_system:
+                        # Get current threats from event system
+                        threats = self.event_system.get_current_threats()
+                        
+                        for threat_id, threat_data in threats.items():
+                            # Check if threat matches auto-engage criteria
+                            if threat_data.get('threatLevel', 'low') in auto_engage:
+                                # Check if there's already a countermeasure for this threat
+                                if threat_id not in self.active_countermeasures:
+                                    # Activate countermeasure
+                                    self.activate_countermeasure(threat_id, threat_data)
+                
+                # Sleep for a short time
+                time.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Error in defense monitor: {str(e)}")
+                time.sleep(5)  # Sleep longer on error
+    
+    def record_countermeasure_result(self, threat_id: str, success: bool) -> None:
+        """
+        Record the result of a countermeasure for learning
+        
+        Args:
+            threat_id: ID of the threat
+            success: Whether the countermeasure was successful
+        """
+        if threat_id not in self.active_countermeasures:
+            return
+            
+        cm_data = self.active_countermeasures[threat_id]
+        cm_type = cm_data['type']
+        threat_type = cm_data.get('threat_assessment', {}).get('type', 'unknown')
+        
+        # Update effectiveness history
+        history_key = f"{threat_type}_{cm_type}"
+        
+        if history_key not in self.countermeasure_effectiveness:
+            self.countermeasure_effectiveness[history_key] = {
+                'success': 0,
+                'failure': 0,
+                'total': 0
+            }
+            
+        hist_data = self.countermeasure_effectiveness[history_key]
+        
+        if success:
+            hist_data['success'] += 1
+        else:
+            hist_data['failure'] += 1
+            
+        hist_data['total'] += 1
+        
+        # Log the result
+        if self.database:
+            self.database.log_system_event(
+                event_type="countermeasure_result",
+                data={
+                    'threat_id': threat_id,
+                    'countermeasure_type': cm_type,
+                    'threat_type': threat_type,
+                    'success': success,
+                    'timestamp': time.time()
+                },
+                severity="info"
+            )
+    
+    def shutdown(self) -> None:
+        """Shutdown the defense coordinator"""
+        self.stop_monitoring = True
+        
+        # Deactivate all countermeasures
+        for threat_id in list(self.active_countermeasures.keys()):
+            self.deactivate_countermeasure(threat_id)
+        
+        logger.info("Defense Coordinator shutdown")
+
+
+class EventSystem:
+    """
+    Simple event system for demonstration purposes
+    In a real implementation, this would be replaced with a more robust messaging system
+    """
+    def __init__(self):
+        self.subscribers = {}
+        self.current_threats = {}
+        self.lock = threading.Lock()
+    
+    def subscribe(self, event_type: str, callback) -> None:
+        """
+        Subscribe to an event type
+        
+        Args:
+            event_type: Type of event to subscribe to
+            callback: Function to call when event occurs
+        """
+        with self.lock:
+            if event_type not in self.subscribers:
+                self.subscribers[event_type] = []
+            self.subscribers[event_type].append(callback)
+    
+    def unsubscribe(self, event_type: str, callback) -> None:
+        """
+        Unsubscribe from an event type
+        
+        Args:
+            event_type: Type of event to unsubscribe from
+            callback: Function to remove from subscribers
+        """
+        with self.lock:
+            if event_type in self.subscribers:
+                if callback in self.subscribers[event_type]:
+                    self.subscribers[event_type].remove(callback)
+    
+    def publish(self, event_type: str, event_data: Dict[str, Any]) -> None:
+        """
+        Publish an event
+        
+        Args:
+            event_type: Type of event
+            event_data: Event data
+        """
+        # Update current threats if this is a threat update
+        if event_type == 'threat_update':
+            self._update_threats(event_data)
+        
+        # Notify subscribers
+        with self.lock:
+            if event_type in self.subscribers:
+                for callback in self.subscribers[event_type]:
+                    try:
+                        callback(event_data)
+                    except Exception as e:
+                        logger.error(f"Error in event callback: {str(e)}")
+    
+    def _update_threats(self, event_data: Dict[str, Any]) -> None:
+        """
+        Update the current threats based on threat update event
+        
+        Args:
+            event_data: Threat update event data
+        """
+        with self.lock:
+            if event_data.get('type') == 'track_update':
+                # Update or add track
+                track_id = event_data.get('track', {}).get('id')
+                if track_id:
+                    self.current_threats[track_id] = event_data.get('track', {})
+            
+            elif event_data.get('type') == 'track_removed':
+                # Remove track
+                track_id = event_data.get('track_id')
+                if track_id and track_id in self.current_threats:
+                    del self.current_threats[track_id]
+    
+    def get_current_threats(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get current threats
+        
+        Returns:
+            Dict of current threats
+        """
+        with self.lock:
+            return self.current_threats.copy()
+
+
+class DefenseSimulator:
+    """
+    Simulator for testing the defense coordinator
+    """
+    def __init__(self, event_system: EventSystem):
+        self.event_system = event_system
+        self.tracks = {}
+        self.stop_simulation = False
+        self.simulation_thread = None
+    
+    def start_simulation(self) -> None:
+        """Start the simulation"""
+        if self.simulation_thread is not None and self.simulation_thread.is_alive():
+            return
+            
+        self.stop_simulation = False
+        self.simulation_thread = threading.Thread(target=self._simulation_loop)
+        self.simulation_thread.daemon = True
+        self.simulation_thread.start()
+        
+        logger.info("Defense simulation started")
+    
+    def stop(self) -> None:
+        """Stop the simulation"""
+        self.stop_simulation = True
+        if self.simulation_thread:
+            self.simulation_thread.join(timeout=2)
+        logger.info("Defense simulation stopped")
+    
+    def _simulation_loop(self) -> None:
+        """Main simulation loop"""
+        while not self.stop_simulation:
+            try:
+                # Generate random tracks
+                self._generate_tracks()
+                
+                # Update track positions
+                self._update_tracks()
+                
+                # Publish track updates
+                self._publish_track_updates()
+                
+                # Sleep
+                time.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Error in simulation loop: {str(e)}")
+                time.sleep(5)
+    
+    def _generate_tracks(self) -> None:
+        """Generate random tracks"""
+        # Ensure we have at least a minimum number of tracks
+        min_tracks = 5
+        max_tracks = 10
+        
+        # Generate new tracks if needed
+        current_count = len(self.tracks)
+        if current_count < min_tracks:
+            tracks_to_add = min_tracks - current_count
+            for _ in range(tracks_to_add):
+                track_id = f"track-{uuid.uuid4().hex[:8]}"
+                
+                # Random track type
+                track_type = np.random.choice(
+                    ['aircraft', 'missile', 'vessel', 'ground', 'cyber', 'unknown'],
+                    p=[0.3, 0.1, 0.2, 0.2, 0.1, 0.1]
+                )
+                
+                # Random threat level
+                threat_level = np.random.choice(
+                    ['low', 'medium', 'high'],
+                    p=[0.6, 0.3, 0.1]
+                )
+                
+                # Random position
+                position = [
+                    np.random.uniform(-180, 180),  # lon
+                    np.random.uniform(-90, 90),    # lat
+                    np.random.uniform(0, 10000)    # alt
+                ]
+                
+                # Random velocity
+                velocity = [
+                    np.random.uniform(-1, 1),
+                    np.random.uniform(-1, 1),
+                    np.random.uniform(-0.5, 0.5)
+                ]
+                
+                # Create track
+                self.tracks[track_id] = {
+                    'id': track_id,
+                    'type': track_type,
+                    'threatLevel': threat_level,
+                    'position': position,
+                    'velocity': velocity,
+                    'lastUpdated': time.time()
+                }
+        
+        # Randomly remove tracks if we have too many
+        if current_count > max_tracks:
+            tracks_to_remove = current_count - max_tracks
+            track_ids = list(self.tracks.keys())
+            remove_ids = np.random.choice(track_ids, size=tracks_to_remove, replace=False)
+            
+            for track_id in remove_ids:
+                del self.tracks[track_id]
+                
+                # Publish track removal
+                self.event_system.publish(
+                    'threat_update',
+                    {
+                        'type': 'track_removed',
+                        'track_id': track_id,
+                        'timestamp': time.time()
+                    }
+                )
+    
+    def _update_tracks(self) -> None:
+        """Update track positions"""
+        for track_id, track in self.tracks.items():
+            # Update position based on velocity
+            position = track['position']
+            velocity = track['velocity']
+            
+            new_position = [
+                position[0] + velocity[0] * 0.1,
+                position[1] + velocity[1] * 0.1,
+                max(0, position[2] + velocity[2] * 0.1)
+            ]
+            
+            # Wrap around world boundaries
+            if new_position[0] > 180:
+                new_position[0] -= 360
+            elif new_position[0] < -180:
+                new_position[0] += 360
+                
+            if new_position[1] > 90:
+                new_position[1] = 180 - new_position[1]
+                velocity[1] *= -1
+            elif new_position[1] < -90:
+                new_position[1] = -180 - new_position[1]
+                velocity[1] *= -1
+            
+            # Small random changes to velocity
+            velocity[0] += np.random.uniform(-0.05, 0.05)
+            velocity[1] += np.random.uniform(-0.05, 0.05)
+            velocity[2] += np.random.uniform(-0.02, 0.02)
+            
+            # Occasionally change threat level
+            if np.random.random() < 0.01:  # 1% chance
+                track['threatLevel'] = np.random.choice(
+                    ['low', 'medium', 'high'],
+                    p=[0.6, 0.3, 0.1]
+                )
+            
+            # Update track
+            track['position'] = new_position
+            track['velocity'] = velocity
+            track['lastUpdated'] = time.time()
+    
+    def _publish_track_updates(self) -> None:
+        """Publish track updates to the event system"""
+        for track_id, track in self.tracks.items():
+            self.event_system.publish(
+                'threat_update',
+                {
+                    'type': 'track_update',
+                    'track': track,
+                    'timestamp': time.time()
+                }
+            )
+
+
+# Integration with the command processor
+class DefenseCommandProcessor:
+    """
+    Process defense-related commands from the command center
+    """
+    def __init__(self, defense_coordinator: DefenseCoordinator, database=None):
+        self.defense_coordinator = defense_coordinator
+        self.database = database
+        self.command_handlers = {
+            'defense_activate': self._handle_defense_activate,
+            'defense_deactivate': self._handle_defense_deactivate,
+            'countermeasure_activate': self._handle_countermeasure_activate,
+            'countermeasure_deactivate': self._handle_countermeasure_deactivate,
+            'defense_protocol': self._handle_defense_protocol,
+            'defense_level': self._handle_defense_level,
+            'defense_status': self._handle_defense_status
+        }
+    
+    def process_command(self, command_type: str, user_id: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a defense-related command
+        
+        Args:
+            command_type: Type of command
+            user_id: ID of the user issuing the command
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        if command_type not in self.command_handlers:
+            logger.warning(f"Unknown defense command: {command_type}")
+            return {
+                'success': False,
+                'message': f"Unknown defense command: {command_type}"
+            }
+        
+        # Log the command
+        if self.database:
+            self.database.log_command(
+                user_id=user_id,
+                command_type=command_type,
+                parameters=parameters,
+                status='processing'
+            )
+        
+        # Process the command
+        try:
+            result = self.command_handlers[command_type](parameters)
+            
+            # Log the result
+            if self.database:
+                self.database.update_command_status(
+                    command_id=result.get('command_id'),
+                    status='completed' if result.get('success', False) else 'failed'
+                )
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error processing defense command {command_type}: {str(e)}")
+            
+            # Log the error
+            if self.database:
+                self.database.update_command_status(
+                    command_id=parameters.get('command_id'),
+                    status='failed'
+                )
+            
+            return {
+                'success': False,
+                'message': f"Error processing command: {str(e)}"
+            }
+    
+    def _handle_defense_activate(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle defense activation command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        level = parameters.get('level', 3)
+        return self.defense_coordinator.set_defense_level(level)
+    
+    def _handle_defense_deactivate(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle defense deactivation command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        return self.defense_coordinator.set_defense_level(1)
+    
+    def _handle_countermeasure_activate(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle countermeasure activation command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        threat_id = parameters.get('threat_id')
+        threat_assessment = parameters.get('threat_assessment', {})
+        
+        if not threat_id:
+            return {
+                'success': False,
+                'message': "Threat ID is required"
+            }
+        
+        return self.defense_coordinator.activate_countermeasure(threat_id, threat_assessment)
+    
+    def _handle_countermeasure_deactivate(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle countermeasure deactivation command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        threat_id = parameters.get('threat_id')
+        
+        if not threat_id:
+            return {
+                'success': False,
+                'message': "Threat ID is required"
+            }
+        
+        return self.defense_coordinator.deactivate_countermeasure(threat_id)
+    
+    def _handle_defense_protocol(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle defense protocol command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        protocol = parameters.get('protocol')
+        
+        if not protocol:
+            return {
+                'success': False,
+                'message': "Protocol name is required"
+            }
+        
+        return self.defense_coordinator.activate_defense_protocol(protocol)
+    
+    def _handle_defense_level(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle defense level command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        level = parameters.get('level')
+        
+        if not level:
+            return {
+                'success': False,
+                'message': "Defense level is required"
+            }
+        
+        return self.defense_coordinator.set_defense_level(level)
+    
+    def _handle_defense_status(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle defense status command
+        
+        Args:
+            parameters: Command parameters
+            
+        Returns:
+            Dict with command result
+        """
+        status = self.defense_coordinator.get_defense_status()
+        return {
+            'success': True,
+            'status': status
+        }
+
+
+# Example usage and testing
+def test_defense_coordinator():
+    """Test the defense coordinator"""
+    # Create event system
+    event_system = EventSystem()
+    
+    # Create defense coordinator
+    defense_coordinator = DefenseCoordinator(
+        config_file='config/defense_config.json',
+        event_system=event_system
+    )
+    
+    # Create defense simulator
+    simulator = DefenseSimulator(event_system)
+    
+    # Start simulation
+    simulator.start_simulation()
+    
+    # Subscribe to defense updates
+    def defense_update_callback(event_data):
+        print(f"Defense update: {event_data}")
+    
+    event_system.subscribe('defense_update', defense_update_callback)
+    
+    try:
+        # Set defense level
+        print("Setting defense level to 3...")
+        result = defense_coordinator.set_defense_level(3)
+        print(f"Result: {result}")
+        
+        # Get defense status
+        print("\nGetting defense status...")
+        status = defense_coordinator.get_defense_status()
+        print(f"Status: {status}")
+        
+        # Activate a defense protocol
+        print("\nActivating defense protocol 'beta'...")
+        result = defense_coordinator.activate_defense_protocol('beta')
+        print(f"Result: {result}")
+        
+        # Wait for some tracks to be generated
+        print("\nWaiting for tracks to be generated...")
+        time.sleep(5)
+        
+        # Get current threats
+        threats = event_system.get_current_threats()
+        print(f"\nCurrent threats: {len(threats)}")
+        
+        # Activate countermeasures for threats
+        for threat_id, threat_data in threats.items():
+            print(f"\nActivating countermeasure for threat {threat_id}...")
+            result = defense_coordinator.activate_countermeasure(threat_id, threat_data)
+            print(f"Result: {result}")
+        
+        # Wait for countermeasures to execute
+        print("\nWaiting for countermeasures to execute...")
+        time.sleep(10)
+        
+        # Get defense status again
+        print("\nGetting defense status...")
+        status = defense_coordinator.get_defense_status()
+        print(f"Status: {status}")
+        
+        # Deactivate a countermeasure
+        if threats:
+            threat_id = next(iter(threats.keys()))
+            print(f"\nDeactivating countermeasure for threat {threat_id}...")
+            result = defense_coordinator.deactivate_countermeasure(threat_id)
+            print(f"Result: {result}")
+        
+        # Activate emergency protocol
+        print("\nActivating emergency protocol 'delta'...")
+        result = defense_coordinator.activate_defense_protocol('delta')
+        print(f"Result: {result}")
+        
+        # Wait to see effects
+        print("\nWaiting to observe effects...")
+        time.sleep(10)
+        
+        # Get final defense status
+        print("\nFinal defense status:")
+        status = defense_coordinator.get_defense_status()
+        print(f"Status: {status}")
+        
+    finally:
+        # Stop simulation
+        simulator.stop()
+        
+        # Shutdown defense coordinator
+        defense_coordinator.shutdown()
+
+
+# Main function
+if __name__ == "__main__":
+    test_defense_coordinator()
+
