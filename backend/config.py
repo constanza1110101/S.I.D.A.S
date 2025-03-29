@@ -23,4 +23,32 @@ LOG_LEVEL = os.environ.get('SIDAS_LOG_LEVEL', 'INFO')
 LOG_FILE = os.environ.get('SIDAS_LOG_FILE', 'sidas.log')
 
 # Database configuration
-DB_TYPE = os.environ.get('
+DB_TYPE = os.environ.get('SIDAS_DB_TYPE', 'sqlite')
+DB_HOST = os.environ.get('SIDAS_DB_HOST', 'localhost')
+DB_PORT = int(os.environ.get('SIDAS_DB_PORT', 5432))
+DB_NAME = os.environ.get('SIDAS_DB_NAME', 'sidas')
+DB_USER = os.environ.get('SIDAS_DB_USER', 'sidas_user')
+DB_PASSWORD = os.environ.get('SIDAS_DB_PASSWORD', 'sidas_password')
+
+# API configuration
+API_VERSION = os.environ.get('SIDAS_API_VERSION', 'v1')
+API_RATE_LIMIT = int(os.environ.get('SIDAS_API_RATE_LIMIT', 100))
+API_RATE_LIMIT_PERIOD = int(os.environ.get('SIDAS_API_RATE_LIMIT_PERIOD', 3600))
+
+# Threat detection configuration
+THREAT_DETECTION_INTERVAL = int(os.environ.get('SIDAS_THREAT_DETECTION_INTERVAL', 60))
+THREAT_LEVELS = ['low', 'medium', 'high', 'critical']
+THREAT_RESPONSE_AUTO = os.environ.get('SIDAS_THREAT_RESPONSE_AUTO', 'False').lower() == 'true'
+
+# WebSocket configuration
+WS_PING_INTERVAL = int(os.environ.get('SIDAS_WS_PING_INTERVAL', 30))
+WS_PING_TIMEOUT = int(os.environ.get('SIDAS_WS_PING_TIMEOUT', 10))
+
+# Encryption key paths
+KEY_DIRECTORY = os.environ.get('SIDAS_KEY_DIRECTORY', 'keys')
+SIGNING_KEY_PATH = os.path.join(KEY_DIRECTORY, 'signing_key.pem')
+ENCRYPTION_KEY_PATH = os.path.join(KEY_DIRECTORY, 'encryption_key.pem')
+
+# Create key directory if it doesn't exist
+if not os.path.exists(KEY_DIRECTORY):
+    os.makedirs(KEY_DIRECTORY)
