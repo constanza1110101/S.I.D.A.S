@@ -1,4 +1,4 @@
-// frontend/src/components/CommandCenter.tsx
+// CommandCenter.tsx - Updated to include 3D visualization
 import React, { useEffect, useState, useCallback } from 'react';
 import { Map, View } from 'ol';
 import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer';
@@ -8,7 +8,8 @@ import { Feature } from 'ol';
 import { Point } from 'ol/geom';
 import { fromLonLat } from 'ol/proj';
 import { io, Socket } from 'socket.io-client';
-import { Button, Card, Tabs, Tab, Table, Badge, Alert, Modal, Form } from 'react-bootstrap';
+import { Button, Card, Tabs, Tab, Table, Badge, Alert, Modal, Form, Nav } from 'react-bootstrap';
+import Battlefield3D from './Battlefield3D';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './CommandCenter.css';
 
@@ -98,6 +99,7 @@ const CommandCenter: React.FC = () => {
   const [commandParams, setCommandParams] = useState({});
   const [alerts, setAlerts] = useState<{message: string, type: string}[]>([]);
   const [vectorSource] = useState(new VectorSource());
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   
   // Initialize map and WebSocket connection
   useEffect(() => {
@@ -233,6 +235,14 @@ const CommandCenter: React.FC = () => {
     return <Badge bg={variant}>{level.toUpperCase()}</Badge>;
   };
   
+  // Handle track selection from 3D view
+  const handleTrackSelect = (trackId: string) => {
+    const track = tracks.find(t => t.id === trackId);
+    if (track) {
+      setSelectedTrack(track);
+    }
+  };
+  
   return (
     <div className="command-center">
       <div className="header">
@@ -242,11 +252,39 @@ const CommandCenter: React.FC = () => {
           <span>Attack: <Badge bg={systemStatus.attack === 'standby' ? 'warning' : 'danger'}>{systemStatus.attack}</Badge></span>
           <span>Tracking: <Badge bg={systemStatus.tracking === 'online' ? 'success' : 'danger'}>{systemStatus.tracking}</Badge></span>
           <span>Threat Level: {renderThreatBadge(systemStatus.threat_level)}</span>
+          
+          <Nav className="ms-auto">
+            <Nav.Item>
+              <Button 
+                variant={viewMode === '2d' ? 'primary' : 'outline-primary'} 
+                onClick={() => setViewMode('2d')}
+                className="me-2"
+              >
+                2D Map
+              </Button>
+            </Nav.Item>
+            <Nav.Item>
+              <Button 
+                variant={viewMode === '3d' ? 'primary' : 'outline-primary'} 
+                onClick={() => setViewMode('3d')}
+              >
+                3D View
+              </Button>
+            </Nav.Item>
+          </Nav>
         </div>
       </div>
       
       <div className="main-content">
-        <div id="map" className="map-container"></div>
+        {viewMode === '2d' ? (
+          <div id="map" className="map-container"></div>
+        ) : (
+          <Battlefield3D 
+            tracks={tracks} 
+            selectedTrackId={selectedTrack?.id} 
+            onTrackSelect={handleTrackSelect} 
+          />
+        )}
         
         <div className="control-panel">
           <Tabs defaultActiveKey="tracks" className="mb-3">
@@ -334,7 +372,7 @@ const CommandCenter: React.FC = () => {
                           </tr>
                           <tr>
                             <td>Last Updated:</td>
-                            <td>{new Date(selectedTrack.lastUpdated).toLocaleString()}</td>
+                                                        <td>{new Date(selectedTrack.lastUpdated).toLocaleString()}</td>
                           </tr>
                         </tbody>
                       </Table>
@@ -427,6 +465,83 @@ const CommandCenter: React.FC = () => {
                 </Card.Body>
               </Card>
             </Tab>
+            
+            <Tab eventKey="analytics" title="Analytics">
+              <Card>
+                <Card.Header>Threat Analytics</Card.Header>
+                <Card.Body>
+                  <div className="analytics-container">
+                    <div className="analytics-chart">
+                      <h5>Threat Distribution</h5>
+                      <div className="threat-distribution">
+                        {['low', 'medium', 'high'].map(level => {
+                          const count = tracks.filter(t => t.threatLevel === level).length;
+                          const percentage = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
+                          
+                          return (
+                            <div key={level} className="threat-bar-container">
+                              <div className="threat-label">{level}</div>
+                              <div className="threat-bar">
+                                <div 
+                                  className={`threat-bar-fill threat-${level}`} 
+                                  style={{ width: `${percentage}%` }}
+                                ></div>
+                              </div>
+                              <div className="threat-count">{count}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    
+                    <div className="analytics-chart">
+                      <h5>Track Types</h5>
+                      <div className="track-types">
+                        {Array.from(new Set(tracks.map(t => t.type))).map(type => {
+                          const count = tracks.filter(t => t.type === type).length;
+                          const percentage = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
+                          
+                          return (
+                            <div key={type} className="track-type-container">
+                              <div className="track-type-label">{type}</div>
+                              <div className="track-type-bar">
+                                <div 
+                                  className="track-type-bar-fill" 
+                                  style={{ width: `${percentage}%` }}
+                                ></div>
+                              </div>
+                              <div className="track-type-count">{count}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    
+                    <div className="threat-summary">
+                      <h5>Threat Summary</h5>
+                      <p>
+                        Current system threat level: <strong>{systemStatus.threat_level.toUpperCase()}</strong>
+                      </p>
+                      <p>
+                        Active tracks: <strong>{tracks.length}</strong>
+                      </p>
+                      <p>
+                        High threat tracks: <strong>{tracks.filter(t => t.threatLevel === 'high').length}</strong>
+                      </p>
+                      <p>
+                        Recommended action: <strong>
+                          {systemStatus.threat_level === 'high' 
+                            ? 'Activate defensive measures' 
+                            : systemStatus.threat_level === 'medium'
+                              ? 'Increase monitoring frequency'
+                              : 'Maintain standard protocols'}
+                        </strong>
+                      </p>
+                    </div>
+                  </div>
+                </Card.Body>
+              </Card>
+            </Tab>
           </Tabs>
         </div>
       </div>
@@ -506,3 +621,4 @@ const CommandCenter: React.FC = () => {
 };
 
 export default CommandCenter;
+
