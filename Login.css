@@ -1,0 +1,88 @@
+/* Login.css */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  position: relative;
+}
+
+.login-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: url('/images/login-background.jpg') no-repeat center center;
+  background-size: cover;
+  filter: blur(5px);
+  z-index: -1;
+}
+
+.login-background::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background-color: rgba(40, 40, 40, 0.9);
+  border: 1px solid #444;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+.login-card .card-header {
+  background-color: rgba(50, 50, 50, 0.9);
+  border-bottom: 1px solid #555;
+  padding: 20px;
+}
+
+.login-card .card-header h2 {
+  color: #00aaff;
+  margin-bottom: 5px;
+}
+
+.login-card .card-header h5 {
+  color: #ccc;
+  font-size: 1rem;
+  margin-bottom: 0;
+}
+
+.login-card .card-body {
+  padding: 25px;
+}
+
+.login-card .card-footer {
+  background-color: rgba(50, 50, 50, 0.9);
+  border-top: 1px solid #555;
+  padding: 15px;
+}
+
+.login-card .form-control {
+  background-color: #333;
+  border-color: #555;
+  color: #fff;
+}
+
+.login-card .form-control:focus {
+  background-color: #333;
+  border-color: #00aaff;
+  box-shadow: 0 0 0 0.25rem rgba(0, 170, 255, 0.25);
+  color: #fff;
+}
+
+.login-card .btn-primary {
+  background-color: #00aaff;
+  border-color: #0099ee;
+}
+
+.login-card .btn-primary:hover {
+  background-color: #0099ee;
+  border-color: #0088dd;
+}
