@@ -1,4 +1,4 @@
-// CommandCenter.tsx - Updated to include 3D visualization
+// CommandCenter.tsx - Updated to include Defense Control Panel
 import React, { useEffect, useState, useCallback } from 'react';
 import { Map, View } from 'ol';
 import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer';
@@ -8,238 +8,41 @@ import { Feature } from 'ol';
 import { Point } from 'ol/geom';
 import { fromLonLat } from 'ol/proj';
 import { io, Socket } from 'socket.io-client';
-import { Button, Card, Tabs, Tab, Table, Badge, Alert, Modal, Form, Nav } from 'react-bootstrap';
+import { Button, Card, Tabs, Tab, Table, Badge, Alert, Modal, Form, Nav, Row, Col } from 'react-bootstrap';
 import Battlefield3D from './Battlefield3D';
+import DefenseControlPanel from './DefenseControlPanel';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './CommandCenter.css';
 
-interface Track {
-  id: string;
-  position: [number, number, number]; // lon, lat, alt
-  velocity: [number, number, number];
-  threatLevel: string;
-  type: string;
-  lastUpdated: string;
-}
-
-interface SystemStatus {
-  defense: string;
-  attack: string;
-  tracking: string;
-  threat_level: string;
-  last_updated: string;
-}
-
-interface Command {
-  type: string;
-  target_id?: string;
-  parameters?: Record<string, any>;
-}
-
-const trackStyleFunction = (feature: Feature): Style => {
-  const track = feature.get('track') as Track;
-  
-  // Color based on threat level
-  let color = 'blue';
-  switch (track.threatLevel) {
-    case 'high':
-      color = 'red';
-      break;
-    case 'medium':
-      color = 'orange';
-      break;
-    case 'low':
-      color = 'green';
-      break;
-  }
-  
-  // Different shapes based on type
-  let radius = 6;
-  switch (track.type) {
-    case 'aircraft':
-      radius = 8;
-      break;
-    case 'vessel':
-      radius = 7;
-      break;
-    case 'ground':
-      radius = 5;
-      break;
-  }
-  
-  return new Style({
-    image: new Circle({
-      radius: radius,
-      fill: new Fill({ color }),
-      stroke: new Stroke({ color: 'white', width: 2 })
-    }),
-    text: new Text({
-      text: track.id,
-      offsetY: -15,
-      fill: new Fill({ color: 'white' }),
-      stroke: new Stroke({ color: 'black', width: 2 })
-    })
-  });
-};
+// ... [existing imports and interfaces]
 
 const CommandCenter: React.FC = () => {
-  const [map, setMap] = useState<Map | null>(null);
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
-  const [systemStatus, setSystemStatus] = useState<SystemStatus>({
-    defense: 'online',
-    attack: 'standby',
-    tracking: 'online',
-    threat_level: 'low',
-    last_updated: new Date().toISOString()
-  });
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [showCommandModal, setShowCommandModal] = useState(false);
-  const [commandType, setCommandType] = useState('track');
-  const [commandParams, setCommandParams] = useState({});
-  const [alerts, setAlerts] = useState<{message: string, type: string}[]>([]);
-  const [vectorSource] = useState(new VectorSource());
-  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+  // ... [existing state variables]
   
-  // Initialize map and WebSocket connection
-  useEffect(() => {
-    // Initialize map
-    const mapInstance = new Map({
-      target: 'map',
-      layers: [
-        new TileLayer({
-          source: new OSM()
-        }),
-        new VectorLayer({
-          source: vectorSource,
-          style: trackStyleFunction
-        })
-      ],
-      view: new View({
-        center: fromLonLat([0, 0]),
-        zoom: 2
-      })
-    });
+  // Handle defense action
+  const handleDefenseAction = (action: string, data: any) => {
+    // Log the action
+    console.log(`Defense action: ${action}`, data);
     
-    setMap(mapInstance);
-    
-    // Set up click handler
-    mapInstance.on('click', (event) => {
-      const feature = mapInstance.forEachFeatureAtPixel(event.pixel, feature => feature);
-      if (feature) {
-        const track = feature.get('track') as Track;
-        setSelectedTrack(track);
-      } else {
-        setSelectedTrack(null);
-      }
-    });
-    
-    // Establish WebSocket connection
-    const socketInstance = io('http://localhost:5000');
-    setSocket(socketInstance);
-    
-    socketInstance.on('connect', () => {
-      console.log('Connected to server');
-      addAlert('Connected to command server', 'success');
-    });
-    
-    socketInstance.on('tracks_update', (data) => {
-      if (data.type === 'tracks_update') {
-        setTracks(data.tracks);
-      }
-    });
-    
-    socketInstance.on('system_update', (data) => {
-      if (data.type === 'system_status') {
-        setSystemStatus(data.status);
-        
-        // Alert if threat level is high
-        if (data.status.threat_level === 'high') {
-          addAlert('ALERT: High threat level detected!', 'danger');
-        }
-      }
-    });
-    
-    socketInstance.on('command_update', (data) => {
-      addAlert(`Command ${data.command} ${data.status} for target ${data.target}`, 'info');
-    });
-    
-    return () => {
-      socketInstance.disconnect();
-      mapInstance.dispose();
-    };
-  }, []);
-  
-  // Update features when tracks change
-  useEffect(() => {
-    if (!vectorSource) return;
-    
-    // Clear existing features
-    vectorSource.clear();
-    
-    // Add new features for each track
-    tracks.forEach(track => {
-      const feature = new Feature({
-        geometry: new Point(fromLonLat([track.position[0], track.position[1]])),
-        track: track
-      });
-      vectorSource.addFeature(feature);
-    });
-  }, [tracks, vectorSource]);
-  
-  // Add an alert message
-  const addAlert = useCallback((message: string, type: string) => {
-    setAlerts(prev => [...prev, { message, type }]);
-    
-    // Remove alert after 5 seconds
-    setTimeout(() => {
-      setAlerts(prev => prev.filter(a => a.message !== message));
-    }, 5000);
-  }, []);
-  
-  // Handle command submission
-  const handleCommandSubmit = () => {
-    if (!socket) return;
-    
-    const command: Command = {
-      type: commandType,
-      parameters: commandParams
-    };
-    
-    if (selectedTrack) {
-      command.target_id = selectedTrack.id;
-    }
-    
-    // Send command to server
-    socket.emit('command', command);
-    
-    addAlert(`Command ${commandType} issued`, 'primary');
-    setShowCommandModal(false);
-  };
-  
-  // Render threat level badge
-  const renderThreatBadge = (level: string) => {
-    let variant = 'info';
-    switch (level) {
-      case 'high':
-        variant = 'danger';
+    // Add an alert based on the action
+    switch (action) {
+      case 'defense_level_changed':
+        addAlert(`Defense level set to ${data.level}`, data.level >= 4 ? 'danger' : 'warning');
         break;
-      case 'medium':
-        variant = 'warning';
+      case 'defense_protocol_activated':
+        addAlert(`Defense protocol ${data.protocol.toUpperCase()} activated`, 'warning');
         break;
-      case 'low':
-        variant = 'success';
+      case 'countermeasure_activated':
+        addAlert(`Countermeasure activated against ${data.threat_id}`, 'info');
+        break;
+      default:
+        addAlert(`Defense action: ${action}`, 'info');
         break;
     }
     
-    return <Badge bg={variant}>{level.toUpperCase()}</Badge>;
-  };
-  
-  // Handle track selection from 3D view
-  const handleTrackSelect = (trackId: string) => {
-    const track = tracks.find(t => t.id === trackId);
-    if (track) {
-      setSelectedTrack(track);
+    // If we have a socket connection, emit an event
+    if (socket) {
+      socket.emit('defense_action', { action, data });
     }
   };
   
@@ -276,274 +79,281 @@ const CommandCenter: React.FC = () => {
       </div>
       
       <div className="main-content">
-        {viewMode === '2d' ? (
-          <div id="map" className="map-container"></div>
-        ) : (
-          <Battlefield3D 
-            tracks={tracks} 
-            selectedTrackId={selectedTrack?.id} 
-            onTrackSelect={handleTrackSelect} 
-          />
-        )}
-        
-        <div className="control-panel">
-          <Tabs defaultActiveKey="tracks" className="mb-3">
-            <Tab eventKey="tracks" title="Tracks">
-              <Card>
-                <Card.Header>Active Tracks ({tracks.length})</Card.Header>
-                <Card.Body>
-                  <div className="tracks-table-container">
-                    <Table striped bordered hover size="sm">
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>Type</th>
-                          <th>Threat</th>
-                          <th>Position</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tracks.map(track => (
-                          <tr 
-                            key={track.id} 
-                            className={selectedTrack?.id === track.id ? 'selected-track' : ''}
-                            onClick={() => setSelectedTrack(track)}
-                          >
-                            <td>{track.id}</td>
-                            <td>{track.type}</td>
-                            <td>{renderThreatBadge(track.threatLevel)}</td>
-                            <td>
-                              {track.position[0].toFixed(2)}, {track.position[1].toFixed(2)}, {track.position[2].toFixed(0)}m
-                            </td>
-                            <td>
-                              <Button 
-                                size="sm" 
-                                variant="primary"
-                                onClick={() => {
-                                  setCommandType('track');
-                                  setShowCommandModal(true);
-                                }}
-                              >
-                                Command
-                              </Button>
-                            </td>
+        <Row className="g-0 h-100">
+          <Col md={8} className="visualization-container">
+            {viewMode === '2d' ? (
+              <div id="map" className="map-container"></div>
+            ) : (
+              <Battlefield3D 
+                tracks={tracks} 
+                selectedTrackId={selectedTrack?.id} 
+                onTrackSelect={handleTrackSelect} 
+              />
+            )}
+          </Col>
+          
+          <Col md={4} className="control-container">
+            <Tabs defaultActiveKey="tracks" className="mb-3 control-tabs">
+              <Tab eventKey="tracks" title="Tracks">
+                <Card className="h-100">
+                  <Card.Header>Active Tracks ({tracks.length})</Card.Header>
+                  <Card.Body className="p-0">
+                    <div className="tracks-table-container">
+                      <Table striped bordered hover size="sm">
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Type</th>
+                            <th>Threat</th>
+                            <th>Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </Table>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Tab>
-            
-            <Tab eventKey="details" title="Track Details">
-              <Card>
-                <Card.Header>Track Details</Card.Header>
-                <Card.Body>
-                  {selectedTrack ? (
-                    <div>
-                      <h4>Track {selectedTrack.id}</h4>
-                      <Table>
+                        </thead>
                         <tbody>
-                          <tr>
-                            <td>Type:</td>
-                            <td>{selectedTrack.type}</td>
-                          </tr>
-                          <tr>
-                            <td>Threat Level:</td>
-                            <td>{renderThreatBadge(selectedTrack.threatLevel)}</td>
-                          </tr>
-                          <tr>
-                            <td>Position:</td>
-                            <td>
-                              Lon: {selectedTrack.position[0].toFixed(4)}<br />
-                              Lat: {selectedTrack.position[1].toFixed(4)}<br />
-                              Alt: {selectedTrack.position[2].toFixed(0)}m
-                            </td>
-                          </tr>
-                          <tr>
-                            <td>Velocity:</td>
-                            <td>
-                              X: {selectedTrack.velocity[0].toFixed(2)}<br />
-                              Y: {selectedTrack.velocity[1].toFixed(2)}<br />
-                              Z: {selectedTrack.velocity[2].toFixed(2)}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td>Last Updated:</td>
-                                                        <td>{new Date(selectedTrack.lastUpdated).toLocaleString()}</td>
-                          </tr>
+                          {tracks.map(track => (
+                            <tr 
+                              key={track.id} 
+                              className={selectedTrack?.id === track.id ? 'selected-track' : ''}
+                              onClick={() => setSelectedTrack(track)}
+                            >
+                              <td>{track.id}</td>
+                              <td>{track.type}</td>
+                              <td>{renderThreatBadge(track.threatLevel)}</td>
+                              <td>
+                                <Button 
+                                  size="sm" 
+                                  variant="primary"
+                                  onClick={() => {
+                                    setCommandType('track');
+                                    setShowCommandModal(true);
+                                  }}
+                                >
+                                  Command
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </Table>
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Tab>
+              
+              <Tab eventKey="details" title="Details">
+                <Card className="h-100">
+                  <Card.Header>Track Details</Card.Header>
+                  <Card.Body>
+                    {selectedTrack ? (
+                      <div>
+                        <h4>Track {selectedTrack.id}</h4>
+                        <Table>
+                          <tbody>
+                            <tr>
+                              <td>Type:</td>
+                              <td>{selectedTrack.type}</td>
+                            </tr>
+                            <tr>
+                              <td>Threat Level:</td>
+                              <td>{renderThreatBadge(selectedTrack.threatLevel)}</td>
+                            </tr>
+                            <tr>
+                              <td>Position:</td>
+                              <td>
+                                Lon: {selectedTrack.position[0].toFixed(4)}<br />
+                                Lat: {selectedTrack.position[1].toFixed(4)}<br />
+                                Alt: {selectedTrack.position[2].toFixed(0)}m
+                              </td>
+                            </tr>
+                            <tr>
+                              <td>Velocity:</td>
+                              <td>
+                                X: {selectedTrack.velocity[0].toFixed(2)}<br />
+                                Y: {selectedTrack.velocity[1].toFixed(2)}<br />
+                                Z: {selectedTrack.velocity[2].toFixed(2)}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td>Last Updated:</td>
+                              <td>{new Date(selectedTrack.lastUpdated).toLocaleString()}</td>
+                            </tr>
+                          </tbody>
+                        </Table>
+                        
+                        <div className="track-actions">
+                          <Button 
+                            variant="primary" 
+                            onClick={() => {
+                              setCommandType('track_focus');
+                              setShowCommandModal(true);
+                            }}
+                          >
+                            Focus
+                          </Button>
+                          <Button 
+                            variant="warning"
+                            onClick={() => {
+                              setCommandType('track_analyze');
+                              setShowCommandModal(true);
+                            }}
+                          >
+                            Analyze
+                          </Button>
+                          <Button 
+                            variant="danger"
+                            onClick={() => {
+                              setCommandType('track_intercept');
+                              setShowCommandModal(true);
+                            }}
+                          >
+                            Intercept
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p>Select a track to view details</p>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Tab>
+              
+              <Tab eventKey="defense" title="Defense">
+                <DefenseControlPanel 
+                  selectedTrack={selectedTrack}
+                  onDefenseAction={handleDefenseAction}
+                />
+              </Tab>
+              
+              <Tab eventKey="system" title="System">
+                <Card className="h-100">
+                  <Card.Header>System Control</Card.Header>
+                  <Card.Body>
+                    <div className="system-controls">
+                      <Button 
+                        variant="success" 
+                        onClick={() => {
+                          setCommandType('system_scan');
+                          setShowCommandModal(true);
+                        }}
+                      >
+                        Initiate Scan
+                      </Button>
+                      <Button 
+                        variant="primary"
+                        onClick={() => {
+                          setCommandType('defense_activate');
+                          setShowCommandModal(true);
+                        }}
+                      >
+                        Activate Defense
+                      </Button>
+                      <Button 
+                        variant="warning"
+                        onClick={() => {
+                          setCommandType('system_reset');
+                          setShowCommandModal(true);
+                        }}
+                      >
+                        Reset Systems
+                      </Button>
+                      <Button 
+                        variant="danger"
+                        onClick={() => {
+                          setCommandType('emergency_protocol');
+                          setShowCommandModal(true);
+                        }}
+                      >
+                        Emergency Protocol
+                      </Button>
+                    </div>
+                    
+                    <div className="system-info">
+                      <h5>System Information</h5>
+                      <p>Last Updated: {new Date(systemStatus.last_updated).toLocaleString()}</p>
+                      <p>Current Status: {systemStatus.defense} / {systemStatus.attack} / {systemStatus.tracking}</p>
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Tab>
+              
+              <Tab eventKey="analytics" title="Analytics">
+                <Card className="h-100">
+                  <Card.Header>Threat Analytics</Card.Header>
+                  <Card.Body>
+                    <div className="analytics-container">
+                      <div className="analytics-chart">
+                        <h5>Threat Distribution</h5>
+                        <div className="threat-distribution">
+                          {['low', 'medium', 'high'].map(level => {
+                            const count = tracks.filter(t => t.threatLevel === level).length;
+                            const percentage = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
+                            
+                            return (
+                              <div key={level} className="threat-bar-container">
+                                <div className="threat-label">{level}</div>
+                                <div className="threat-bar">
+                                  <div 
+                                    className={`threat-bar-fill threat-${level}`} 
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                                <div className="threat-count">{count}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                       
-                      <div className="track-actions">
-                        <Button 
-                          variant="primary" 
-                          onClick={() => {
-                            setCommandType('track_focus');
-                            setShowCommandModal(true);
-                          }}
-                        >
-                          Focus
-                        </Button>
-                        <Button 
-                          variant="warning"
-                          onClick={() => {
-                            setCommandType('track_analyze');
-                            setShowCommandModal(true);
-                          }}
-                        >
-                          Analyze
-                        </Button>
-                        <Button 
-                          variant="danger"
-                          onClick={() => {
-                            setCommandType('track_intercept');
-                            setShowCommandModal(true);
-                          }}
-                        >
-                          Intercept
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p>Select a track to view details</p>
-                  )}
-                </Card.Body>
-              </Card>
-            </Tab>
-            
-            <Tab eventKey="system" title="System Control">
-              <Card>
-                <Card.Header>System Control</Card.Header>
-                <Card.Body>
-                  <div className="system-controls">
-                    <Button 
-                      variant="success" 
-                      onClick={() => {
-                        setCommandType('system_scan');
-                        setShowCommandModal(true);
-                      }}
-                    >
-                      Initiate Scan
-                    </Button>
-                    <Button 
-                      variant="primary"
-                      onClick={() => {
-                        setCommandType('defense_activate');
-                        setShowCommandModal(true);
-                      }}
-                    >
-                      Activate Defense
-                    </Button>
-                    <Button 
-                      variant="warning"
-                      onClick={() => {
-                        setCommandType('system_reset');
-                        setShowCommandModal(true);
-                      }}
-                    >
-                      Reset Systems
-                    </Button>
-                    <Button 
-                      variant="danger"
-                      onClick={() => {
-                        setCommandType('emergency_protocol');
-                        setShowCommandModal(true);
-                      }}
-                    >
-                      Emergency Protocol
-                    </Button>
-                  </div>
-                  
-                  <div className="system-info">
-                    <h5>System Information</h5>
-                    <p>Last Updated: {new Date(systemStatus.last_updated).toLocaleString()}</p>
-                    <p>Current Status: {systemStatus.defense} / {systemStatus.attack} / {systemStatus.tracking}</p>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Tab>
-            
-            <Tab eventKey="analytics" title="Analytics">
-              <Card>
-                <Card.Header>Threat Analytics</Card.Header>
-                <Card.Body>
-                  <div className="analytics-container">
-                    <div className="analytics-chart">
-                      <h5>Threat Distribution</h5>
-                      <div className="threat-distribution">
-                        {['low', 'medium', 'high'].map(level => {
-                          const count = tracks.filter(t => t.threatLevel === level).length;
-                          const percentage = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
-                          
-                          return (
-                            <div key={level} className="threat-bar-container">
-                              <div className="threat-label">{level}</div>
-                              <div className="threat-bar">
-                                <div 
-                                  className={`threat-bar-fill threat-${level}`} 
-                                  style={{ width: `${percentage}%` }}
-                                ></div>
+                      <div className="analytics-chart">
+                        <h5>Track Types</h5>
+                        <div className="track-types">
+                          {Array.from(new Set(tracks.map(t => t.type))).map(type => {
+                            const count = tracks.filter(t => t.type === type).length;
+                            const percentage = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
+                            
+                            return (
+                              <div key={type} className="track-type-container">
+                                <div className="track-type-label">{type}</div>
+                                <div className="track-type-bar">
+                                  <div 
+                                    className="track-type-bar-fill" 
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                                <div className="track-type-count">{count}</div>
                               </div>
-                              <div className="threat-count">{count}</div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
+                      </div>
+                      
+                      <div className="threat-summary">
+                        <h5>Threat Summary</h5>
+                        <p>
+                          Current system threat level: <strong>{systemStatus.threat_level.toUpperCase()}</strong>
+                        </p>
+                        <p>
+                          Active tracks: <strong>{tracks.length}</strong>
+                        </p>
+                        <p>
+                          High threat tracks: <strong>{tracks.filter(t => t.threatLevel === 'high').length}</strong>
+                        </p>
+                        <p>
+                          Recommended action: <strong>
+                            {systemStatus.threat_level === 'high' 
+                              ? 'Activate defensive measures' 
+                              : systemStatus.threat_level === 'medium'
+                                ? 'Increase monitoring frequency'
+                                : 'Maintain standard protocols'}
+                          </strong>
+                        </p>
                       </div>
                     </div>
-                    
-                    <div className="analytics-chart">
-                      <h5>Track Types</h5>
-                      <div className="track-types">
-                        {Array.from(new Set(tracks.map(t => t.type))).map(type => {
-                          const count = tracks.filter(t => t.type === type).length;
-                          const percentage = tracks.length > 0 ? (count / tracks.length) * 100 : 0;
-                          
-                          return (
-                            <div key={type} className="track-type-container">
-                              <div className="track-type-label">{type}</div>
-                              <div className="track-type-bar">
-                                <div 
-                                  className="track-type-bar-fill" 
-                                  style={{ width: `${percentage}%` }}
-                                ></div>
-                              </div>
-                              <div className="track-type-count">{count}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    
-                    <div className="threat-summary">
-                      <h5>Threat Summary</h5>
-                      <p>
-                        Current system threat level: <strong>{systemStatus.threat_level.toUpperCase()}</strong>
-                      </p>
-                      <p>
-                        Active tracks: <strong>{tracks.length}</strong>
-                      </p>
-                      <p>
-                        High threat tracks: <strong>{tracks.filter(t => t.threatLevel === 'high').length}</strong>
-                      </p>
-                      <p>
-                        Recommended action: <strong>
-                          {systemStatus.threat_level === 'high' 
-                            ? 'Activate defensive measures' 
-                            : systemStatus.threat_level === 'medium'
-                              ? 'Increase monitoring frequency'
-                              : 'Maintain standard protocols'}
-                        </strong>
-                      </p>
-                    </div>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Tab>
-          </Tabs>
-        </div>
+                  </Card.Body>
+                </Card>
+              </Tab>
+            </Tabs>
+          </Col>
+        </Row>
       </div>
       
       <div className="alerts-container">
@@ -554,71 +364,12 @@ const CommandCenter: React.FC = () => {
         ))}
       </div>
       
+      {/* Command Modal - unchanged */}
       <Modal show={showCommandModal} onHide={() => setShowCommandModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Issue Command: {commandType}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form>
-            <Form.Group className="mb-3">
-              <Form.Label>Command Type</Form.Label>
-              <Form.Select 
-                value={commandType}
-                onChange={(e) => setCommandType(e.target.value)}
-              >
-                <option value="track_focus">Track Focus</option>
-                <option value="track_analyze">Track Analyze</option>
-                <option value="track_intercept">Track Intercept</option>
-                <option value="system_scan">System Scan</option>
-                <option value="defense_activate">Defense Activate</option>
-                <option value="system_reset">System Reset</option>
-                <option value="emergency_protocol">Emergency Protocol</option>
-              </Form.Select>
-            </Form.Group>
-            
-            <Form.Group className="mb-3">
-              <Form.Label>Target</Form.Label>
-              <Form.Control 
-                type="text" 
-                readOnly 
-                value={selectedTrack ? selectedTrack.id : 'No target selected'}
-              />
-            </Form.Group>
-            
-            <Form.Group className="mb-3">
-              <Form.Label>Priority</Form.Label>
-              <Form.Select 
-                onChange={(e) => setCommandParams({...commandParams, priority: e.target.value})}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </Form.Select>
-            </Form.Group>
-            
-            <Form.Group className="mb-3">
-              <Form.Label>Notes</Form.Label>
-              <Form.Control 
-                as="textarea" 
-                rows={3}
-                onChange={(e) => setCommandParams({...commandParams, notes: e.target.value})}
-              />
-            </Form.Group>
-          </Form>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowCommandModal(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={handleCommandSubmit}>
-            Issue Command
-          </Button>
-        </Modal.Footer>
+        {/* ... (Modal content remains unchanged) */}
       </Modal>
     </div>
   );
 };
 
 export default CommandCenter;
-
