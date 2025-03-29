@@ -1,0 +1,30 @@
+/* Battlefield3D.css */
+.battlefield-3d {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.battlefield-container {
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+}
+
+.battlefield-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.6);
+  border-radius: 5px;
+  z-index: 10;
+}
+
+.battlefield-controls .btn-group {
+  margin-right: 10px;
+}
