@@ -1,0 +1,31 @@
+# docker-compose.yml
+version: '3'
+
+services:
+  sidas-backend:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    environment:
+      - SIDAS_DEBUG=False
+      - SIDAS_SECRET_KEY=your_secret_key_here
+      - SIDAS_DB_TYPE=sqlite
+      - SIDAS_DB_NAME=/data/sidas
+      - SIDAS_LOG_FILE=/data/sidas.log
+    restart: unless-stopped
+
+  sidas-frontend:
+    image: node:14-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm start"
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+    depends_on:
+      - sidas-backend
